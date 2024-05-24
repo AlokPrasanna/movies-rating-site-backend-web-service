@@ -2,6 +2,9 @@ const express = require("express");
 const mysql = require("mysql2");
 const bodyParser = require("body-parser");
 const cors = require("cors");
+require("dotenv/config");
+
+const Configs = require('./configurations')
 
 const app = express();
 app.use(cors());
@@ -9,11 +12,11 @@ app.use(bodyParser.json());
 const port = 3001;
 
 const db = mysql.createConnection({
-    host: "localhost",
-    user: "root",
-    password: "useR12345@",
-    port:3306,
-    database: "movie_review"
+    host: Configs.HOST,
+    user: Configs.USER,
+    password: Configs.PASSWORD,
+    port:Configs.PORT,
+    database: Configs.DATABASE
 });
 
 db.connect((err) => {
