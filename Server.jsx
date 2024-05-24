@@ -1,5 +1,5 @@
 const express = require("express");
-const mysql = require("mysql2");
+const mysql = require("mysql2/promise");
 const bodyParser = require("body-parser");
 const cors = require("cors");
 require("dotenv/config");
@@ -12,100 +12,100 @@ app.use(bodyParser.json());
 
 const port = Configs.PORT || 3001;
 
-const db = mysql.createConnection({
+// Create a pool of connections
+const pool = mysql.createPool({
     host: Configs.HOST,
     user: Configs.USER,
     password: Configs.PASSWORD,
     port: Configs.DB_PORT,
-    database: Configs.DATABASE
+    database: Configs.DATABASE,
+    waitForConnections: true,
+    connectionLimit: 10,
+    queueLimit: 0
 });
 
-db.connect((err) => {
-    if (err) {
-        console.error('Error connecting to MySQL: ' + err.stack);
-        return;
-    }
-    console.log('Connected to MySQL as id ' + db.threadId);
-});
-
-app.post("/add-new-movie-id", (req, res) => {
+app.post("/add-new-movie-id", async (req, res) => {
     const MovieId = req.body.Id;
-    console.log(req.body);
+    console.log("Request body:", req.body);
     if (!MovieId) {
+        console.error("Missing movieId in the request body");
         return res.status(400).json({ error: "Missing movieId in the request body" });
     }
 
-    const CheckIfExitMovieId = "SELECT * FROM movies_rating WHERE movie_id = ? ";
-    db.query(CheckIfExitMovieId, [MovieId], (err, results) => {
-        if (err) {
-            console.error(err);
-            return res.status(500).json({ error: "Internal Server Error! 1" });
+    try {
+        const connection = await pool.getConnection();
+        try {
+            const [results] = await connection.query("SELECT * FROM movies_rating WHERE movie_id = ?", [MovieId]);
+            if (results.length > 0) {
+                console.log("Movie ID already exists:", MovieId);
+                return res.status(200).json({ message: "Already Exists" });
+            } else {
+                await connection.query("INSERT INTO movies_rating (movie_id, rating_count) VALUES (?, ?)", [MovieId, 0]);
+                console.log("Movie ID saved successfully:", MovieId);
+                return res.status(201).json({ message: "Movie Id saved successfully!" });
+            }
+        } finally {
+            connection.release();
         }
-
-        if (results.length > 0) {
-            return res.status(200).json({ message: "Already Exists" });
-        } else {
-            const InsertQuery = "INSERT INTO movies_rating (movie_id, rating_count) VALUES (?, ?)";
-            db.query(InsertQuery, [MovieId, 0], (err, results) => {
-                if (err) {
-                    console.error(err);
-                    return res.status(500).json({ error: "Internal Server Error! 2" });
-                }
-                return res.status(201).json({ message: "Movie Id save successfully!" });
-            });
-        }
-    });
+    } catch (err) {
+        console.error("Error during database operation:", err);
+        return res.status(500).json({ error: "Internal Server Error!" });
+    }
 });
 
-app.get("/", function (req, res) {
+app.get("/", (req, res) => {
     res.send("Hi I'm here");
 });
 
-app.get("/get-movie-ratings", function (req, res) {
-    const GetMovieRatingDetails = "SELECT * FROM movies_rating";
-    db.query(GetMovieRatingDetails, (err, results) => {
-        if (err) {
-            console.error(err);
-            return res.status(500).json({ error: "Internal Server Error!" });
+app.get("/get-movie-ratings", async (req, res) => {
+    try {
+        const connection = await pool.getConnection();
+        try {
+            const [results] = await connection.query("SELECT * FROM movies_rating");
+            res.send(results);
+        } finally {
+            connection.release();
         }
-        res.send(results);
-    });
+    } catch (err) {
+        console.error("Error fetching movie ratings:", err);
+        return res.status(500).json({ error: "Internal Server Error!" });
+    }
 });
 
-app.put("/update-rating", (req, res) => {
+app.put("/update-rating", async (req, res) => {
     const MovieId = req.body.movieId;
     const RatingCount = req.body.ratingValue;
     const FansCount = req.body.newFansCount;
 
-    console.log("Movie Id: ", MovieId);
-    console.log("Rating Count: ", RatingCount);
-    console.log("Fans Count: ", FansCount);
+    console.log("Movie Id:", MovieId);
+    console.log("Rating Count:", RatingCount);
+    console.log("Fans Count:", FansCount);
 
     if (MovieId === null || RatingCount === null || FansCount === null) {
         return res.status(400).json({ error: "Missing movieId in the request body" });
-    } else {
-        const CheckIfExitMovieId = "SELECT * FROM movies_rating WHERE movie_id = ? ";
-        db.query(CheckIfExitMovieId, [MovieId], (err, results) => {
-            if (err) {
-                console.error(err);
-                return res.status(500).json({ error: "Internal Server Error! 1" });
-            }
+    }
+
+    try {
+        const connection = await pool.getConnection();
+        try {
+            const [results] = await connection.query("SELECT * FROM movies_rating WHERE movie_id = ?", [MovieId]);
             if (results.length > 0) {
-                const SaveQuery = "UPDATE movies_rating SET rating_count = ?, fans_count = ? WHERE movie_id = ?";
-                db.query(SaveQuery, [RatingCount, FansCount, MovieId], (err, result) => {
-                    if (err) {
-                        console.error(err);
-                        return res.status(500).json({ error: "Internal Server Error!" });
-                    }
-                    return res.status(201).json({ message: "Rating Update successfully!" });
-                });
+                await connection.query("UPDATE movies_rating SET rating_count = ?, fans_count = ? WHERE movie_id = ?", [RatingCount, FansCount, MovieId]);
+                console.log("Rating updated successfully for movie ID:", MovieId);
+                return res.status(201).json({ message: "Rating updated successfully!" });
             } else {
+                console.error("Movie ID not found:", MovieId);
                 return res.status(400).json({ error: "Id Not Found!" });
             }
-        });
+        } finally {
+            connection.release();
+        }
+    } catch (err) {
+        console.error("Error during database operation:", err);
+        return res.status(500).json({ error: "Internal Server Error!" });
     }
 });
 
 app.listen(port, () => {
-    console.log("Server running...");
+    console.log("Server running on port", port);
 });
