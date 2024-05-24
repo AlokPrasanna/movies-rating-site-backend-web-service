@@ -9,13 +9,14 @@ const Configs = require('./configurations')
 const app = express();
 app.use(cors());
 app.use(bodyParser.json());
-const port = 3001;
+
+const port = Configs.PORT || 3001;
 
 const db = mysql.createConnection({
     host: Configs.HOST,
     user: Configs.USER,
     password: Configs.PASSWORD,
-    port:Configs.PORT,
+    port:Configs.DB_PORT,
     database: Configs.DATABASE
 });
 
